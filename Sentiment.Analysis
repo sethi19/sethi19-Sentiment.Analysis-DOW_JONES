@@ -1,0 +1,151 @@
+# This program predicts the stock price of DOW JONES based on the top news headlines.
+
+pip install vadersentiment
+
+# Importing the libraries
+import pandas as pd
+import numpy as np
+from textblob import TextBlob
+import re
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+
+# Loading the data
+from google.colab import files
+files.upload()
+
+# Saving the files into variables
+df1 = pd.read_csv('Combined_News_DJIA.csv')
+df2 = pd.read_csv('upload_DJIA_table.csv')
+
+# Overview of the DF1 (which contains the combined data)
+# The label column describes the activity of DOWJONES; 
+# If label = 0 (meaing the market was down that day) 
+# If label = 1 (meaing the market was up that day) 
+df1.head(5)
+
+# Get the number of rows and columns 
+## -> We have 1989 rows of data & 27 rows
+df1.shape
+
+# Looking over the df2
+df2.head(5)
+
+# Df2 is the data from the dowjones extracted from yahoo finance. the dataset contains 1989 rows & 7 columns
+df2.shape
+
+# Merging the two datasets based on the date field
+merge= df1.merge(df2, how='inner', on='Date', left_index= True)
+
+# looking at the merged data set
+merge
+
+# Combining the top news headlines
+headlines = []
+
+for row in range(0,len(merge.index)):
+  headlines.append(' '.join( str(x) for x in merge.iloc[row, 2:27]))
+
+# Print a sample of the combined headlines
+headlines[0]
+
+# As the dataset is quite messy we have to CLEAN THE DATA 
+## [For example the "b", and the quatation marks, bracket ALL NEED TO GO]
+clean_headlines = []
+for i in range(0, len(headlines)):
+   clean_headlines.append(re.sub("b[(')]", '', headlines[i] )) # removes the b'
+   clean_headlines[i] = re.sub('b[(")]', '',clean_headlines[i]) #removes the b""
+   clean_headlines[i] = re.sub("\'", '',clean_headlines[i]) #removes the \'
+
+# Looking at the combined clean headlines
+clean_headlines[20]
+
+# Now we do the final merge of the cleaned data set
+merge['combined_news'] = clean_headlines
+
+# show the new column
+merge['combined_news'][0]
+
+# looking at the first 5 roe=ws of the new merged dataset
+merge.head(5)
+
+# Create a function to get the subjectivity 
+def getsubjectivity(text):
+    return TextBlob(text).sentiment.subjectivity
+
+# Crete a funtion to get polarity 
+def getpolarity(text):
+    return TextBlob(text).sentiment.polarity
+
+# now we create two new columns 'subjectivity' and 'polarity'
+
+merge['subjectivity'] = merge['combined_news'].apply(getsubjectivity)
+
+merge['Polarity'] = merge['combined_news'].apply(getpolarity)
+
+# Lets look at the new columns in the new dataset
+## Polarity is a float where the score ranges from -1 to 1. Where 1 means positive statement & -1 means negative statement.
+## Where as subjectivity refers to the personal opinion, is also a float. Lies between 0 & 1, 0 being objective and 1 being subjective. 
+merge.head(5)
+
+# Lets start calculating the subjectivity score. Start by creating a fuction of the sentiment core using sentiment intensity analyzer.
+def getSIA(text):
+  sia=SentimentIntensityAnalyzer()
+  sentiment = sia.polarity_scores(text)
+  return sentiment
+
+compound = []
+neg = []
+pos = []
+neu = []
+SIA = 0
+
+for i in range(0, len(merge['combined_news'])):
+  SIA = getSIA(merge['combined_news'][i])
+  compound.append(SIA['compound'])
+  neg.append(SIA['neg'])
+  neu.append(SIA['neu'])
+  pos.append(SIA['pos'])
+
+# Now lets the store the sentiment scores in the merged dataset
+merge['compound'] = compound
+merge['negative'] = neg
+merge['neutral'] = neu
+merge['positive'] = pos
+
+# Show the merged data
+merge.head(5)
+
+# Create a list of columns to keep
+
+keep_col = ['Open', 'High', 'Low', 'Volume', 'subjectivity', 'compound', 'negative', 'neutral', 'positive', 'Label']
+
+df = merge[keep_col]
+
+df
+
+# Lets creat the feature data set
+
+x = df
+x = np.array(x.drop(['Label'], 1))
+
+# Create the target data set
+y = np.array(df['Label'])
+
+# Split the data set 80/20 for training/testing
+
+x_train, x_test, y_train, y_test= train_test_split(x,y, test_size=0.2, random_state=0)
+
+# creating and training the model
+model = LinearDiscriminantAnalysis().fit(x_train, y_train)
+
+# Making the preditions using the training data set
+pred = model.predict(x_test)
+pred
+
+y_test
+
+# THE MODEL METRICS -- The model is 87% accurate (very decent)
+print (classification_report(y_test, pred))
